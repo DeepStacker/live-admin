@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Service Logs - Uptime Monitor</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      .log-entry {
+        border-left: 4px solid #e9ecef;
+        transition: all 0.3s ease;
+      }
+      .log-entry.success {
+        border-left-color: #28a745;
+      }
+      .log-entry.error {
+        border-left-color: #dc3545;
+      }
+      .log-entry.timeout {
+        border-left-color: #ffc107;
+      }
+      .log-entry.disabled {
+        border-left-color: #6c757d;
+      }
+      .response-time {
+        font-family: "Courier New", monospace;
+        font-size: 0.9em;
+      }
+      .log-message {
+        font-family: "Courier New", monospace;
+      }
+      .auto-refresh {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+      }
+      .filter-bar {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark">
+      <div class="container-fluid">
+        <a href="/" class="navbar-brand">
+          <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+        <span class="navbar-text">
+          <i class="fas fa-list"></i> Service Logs
+        </span>
+      </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+      <div class="row">
+        <div class="col-md-12">
+          <div class="card">
+            <div
+              class="card-header d-flex justify-content-between align-items-center"
+            >
+              <h5 class="mb-0">
+                <i class="fas fa-server"></i> {{ service.name or service.url }}
+              </h5>
+              <div class="d-flex align-items-center">
+                <button
+                  class="btn btn-sm btn-outline-primary me-2"
+                  onclick="refreshLogs()"
+                >
+                  <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <div class="form-check form-switch">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="autoRefresh"
+                    checked
+                  />
+                  <label class="form-check-label" for="autoRefresh"
+                    >Auto Refresh</label
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <!-- Service Info -->
+              <div class="row mb-4">
+                <div class="col-md-3">
+                  <div class="card text-center">
+                    <div class="card-body">
+                      <h6 class="card-title">URL</h6>
+                      <p class="card-text small">{{ service.url }}</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card text-center">
+                    <div class="card-body">
+                      <h6 class="card-title">Interval</h6>
+                      <p class="card-text">
+                        {{ (service.interval / 1000)|int }}s
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card text-center">
+                    <div class="card-body">
+                      <h6 class="card-title">Timeout</h6>
+                      <p class="card-text">
+                        {{ (service.timeout / 1000)|int }}s
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card text-center">
+                    <div class="card-body">
+                      <h6 class="card-title">Status</h6>
+                      <p class="card-text">
+                        <span
+                          class="badge {% if service.enabled %}{% if service.last_status == 'success' %}bg-success{% else %}bg-danger{% endif %}{% else %}bg-secondary{% endif %}"
+                        >
+                          {% if not service.enabled %}Disabled {% elif
+                          service.last_status == 'success' %}Online {% else
+                          %}Offline{% endif %}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Filter Bar -->
+              <div class="filter-bar">
+                <div class="row align-items-center">
+                  <div class="col-md-4">
+                    <label for="statusFilter" class="form-label"
+                      >Filter by Status:</label
+                    >
+                    <select
+                      class="form-select"
+                      id="statusFilter"
+                      onchange="filterLogs()"
+                    >
+                      <option value="">All Status</option>
+                      <option value="success">Success</option>
+                      <option value="error">Error</option>
+                      <option value="timeout">Timeout</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label for="timeFilter" class="form-label"
+                      >Time Range:</label
+                    >
+                    <select
+                      class="form-select"
+                      id="timeFilter"
+                      onchange="filterLogs()"
+                    >
+                      <option value="">All Time</option>
+                      <option value="1">Last Hour</option>
+                      <option value="24">Last 24 Hours</option>
+                      <option value="168">Last Week</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label for="limitFilter" class="form-label"
+                      >Show Entries:</label
+                    >
+                    <select
+                      class="form-select"
+                      id="limitFilter"
+                      onchange="filterLogs()"
+                    >
+                      <option value="50">50</option>
+                      <option value="100" selected>100</option>
+                      <option value="200">200</option>
+                      <option value="500">500</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Logs Table -->
+              <div class="table-responsive">
+                <table class="table table-hover">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Status</th>
+                      <th>Message</th>
+                      <th>Response Time</th>
+                      <th>Response Code</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="logsTableBody">
+                    {% for log in logs %}
+                    <tr
+                      class="log-entry {{ log.status }}"
+                      data-timestamp="{{ log.timestamp.isoformat() }}"
+                      data-status="{{ log.status }}"
+                    >
+                      <td>
+                        <small
+                          >{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                          }}</small
+                        >
+                      </td>
+                      <td>
+                        <span
+                          class="badge {% if log.status == 'success' %}bg-success{% elif log.status == 'timeout' %}bg-warning{% elif log.status == 'disabled' %}bg-secondary{% else %}bg-danger{% endif %}"
+                        >
+                          {{ log.status.title() }}
+                        </span>
+                      </td>
+                      <td class="log-message">{{ log.message }}</td>
+                      <td class="response-time">
+                        {% if log.response_time %} {{ (log.response_time *
+                        1000)|round(0)|int }}ms {% else %} -- {% endif %}
+                      </td>
+                      <td>
+                        {% if log.response_code %}
+                        <span
+                          class="badge {% if log.response_code < 400 %}bg-success{% elif log.response_code < 500 %}bg-warning{% else %}bg-danger{% endif %}"
+                        >
+                          {{ log.response_code }}
+                        </span>
+                        {% else %} -- {% endif %}
+                      </td>
+                      <td>
+                        {% if log.response_body %}
+                        <button
+                          class="btn btn-sm btn-outline-info"
+                          onclick="showResponse({{ log.id }}, '{{ log.response_body[:100]|e }}')"
+                        >
+                          <i class="fas fa-eye"></i>
+                        </button>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+              {% if not logs %}
+              <div class="text-center py-5">
+                <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No logs found</h5>
+                <p class="text-muted">
+                  Logs will appear here once the service starts monitoring.
+                </p>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Response Modal -->
+    <div class="modal fade" id="responseModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Response Body</h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <pre id="responseBody" class="bg-light p-3 rounded"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auto Refresh Indicator -->
+    <div class="auto-refresh">
+      <div class="badge bg-primary" id="refreshIndicator" style="display: none">
+        <i class="fas fa-sync-alt fa-spin"></i> Refreshing...
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      let autoRefreshInterval;
+      const serviceId = {{ service_id }};
+
+      function refreshLogs() {
+          document.getElementById('refreshIndicator').style.display = 'block';
+
+          const statusFilter = document.getElementById('statusFilter').value;
+          const timeFilter = document.getElementById('timeFilter').value;
+          const limitFilter = document.getElementById('limitFilter').value;
+
+          let url = `/api/logs/${serviceId}?limit=${limitFilter}`;
+
+          fetch(url)
+              .then(response => response.json())
+              .then(logs => {
+                  updateLogsTable(logs);
+                  document.getElementById('refreshIndicator').style.display = 'none';
+              })
+              .catch(error => {
+                  console.error('Error refreshing logs:', error);
+                  document.getElementById('refreshIndicator').style.display = 'none';
+              });
+      }
+
+      function updateLogsTable(logs) {
+          const tbody = document.getElementById('logsTableBody');
+          tbody.innerHTML = '';
+
+          logs.forEach(log => {
+              const row = document.createElement('tr');
+              row.className = `log-entry ${log.status}`;
+              row.setAttribute('data-timestamp', log.timestamp);
+              row.setAttribute('data-status', log.status);
+
+              const timestamp = new Date(log.timestamp).toLocaleString();
+              const responseTime = log.response_time ? `${(log.response_time * 1000).toFixed(0)}ms` : '--';
+              const responseCode = log.response_code ?
+                  `<span class="badge ${log.response_code < 400 ? 'bg-success' : log.response_code < 500 ? 'bg-warning' : 'bg-danger'}">${log.response_code}</span>` : '--';
+
+              let statusBadge = 'bg-secondary';
+              if (log.status === 'success') statusBadge = 'bg-success';
+              else if (log.status === 'timeout') statusBadge = 'bg-warning';
+              else if (log.status === 'disabled') statusBadge = 'bg-secondary';
+              else statusBadge = 'bg-danger';
+
+              row.innerHTML = `
+                  <td><small>${timestamp}</small></td>
+                  <td><span class="badge ${statusBadge}">${log.status.charAt(0).toUpperCase() + log.status.slice(1)}</span></td>
+                  <td class="log-message">${log.message}</td>
+                  <td class="response-time">${responseTime}</td>
+                  <td>${responseCode}</td>
+                  <td>
+                      ${log.response_body ? `<button class="btn btn-sm btn-outline-info" onclick="showResponse(${log.id}, '${log.response_body.substring(0, 100)}')"><i class="fas fa-eye"></i></button>` : ''}
+                  </td>
+              `;
+
+              tbody.appendChild(row);
+          });
+
+          filterLogs();
+      }
+
+      function filterLogs() {
+          const statusFilter = document.getElementById('statusFilter').value;
+          const timeFilter = document.getElementById('timeFilter').value;
+          const rows = document.querySelectorAll('#logsTableBody tr');
+
+          const now = new Date();
+          const timeFilterMs = timeFilter ? parseInt(timeFilter) * 60 * 60 * 1000 : null;
+
+          rows.forEach(row => {
+              let show = true;
+
+              // Status filter
+              if (statusFilter && row.getAttribute('data-status') !== statusFilter) {
+                  show = false;
+              }
+
+              // Time filter
+              if (timeFilterMs) {
+                  const logTime = new Date(row.getAttribute('data-timestamp'));
+                  if (now - logTime > timeFilterMs) {
+                      show = false;
+                  }
+              }
+
+              row.style.display = show ? '' : 'none';
+          });
+      }
+
+      function showResponse(logId, responseBody) {
+          document.getElementById('responseBody').textContent = responseBody;
+          new bootstrap.Modal(document.getElementById('responseModal')).show();
+      }
+
+      function toggleAutoRefresh() {
+          const checkbox = document.getElementById('autoRefresh');
+          if (checkbox.checked) {
+              autoRefreshInterval = setInterval(refreshLogs, 10000); // Refresh every 10 seconds
+          } else {
+              clearInterval(autoRefreshInterval);
+          }
+      }
+
+      // Initialize
+      document.addEventListener('DOMContentLoaded', function() {
+          toggleAutoRefresh();
+
+          document.getElementById('autoRefresh').addEventListener('change', toggleAutoRefresh);
+      });
+    </script>
+  </body>
+</html>
