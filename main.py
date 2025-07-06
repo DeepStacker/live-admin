@@ -47,6 +47,10 @@ def index(request: Request):
             "index.html", {"request": request, "services": services}
         )
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to ensure the service is running"""
+    return JSONResponse(content={"status": "ok"}, status_code=200)
 
 @app.post("/add")
 def add_service(
