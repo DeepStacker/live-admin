@@ -6,4 +6,5 @@ aiohttp
 apscheduler
 gunicorn
 httpx
+python-multipart
 
